@@ -9,7 +9,7 @@
 
 int main() {
 	{
-		SharedMemoryQueue<std::array<uint8_t, BUFFER_SIZE>, NUM_MESSAGES> queue{"bench"};
+		SharedMemoryQueue<NUM_MESSAGES, BUFFER_SIZE> queue{"bench"};
 		queue.reset();
 	}
 
@@ -22,23 +22,36 @@ int main() {
 
     if (pid == 0) {
         // Child process - read from pipe
-		SharedMemoryQueue<std::array<uint8_t, BUFFER_SIZE>, NUM_MESSAGES> queue{"bench"};
+		SharedMemoryQueue<NUM_MESSAGES, BUFFER_SIZE> queue{"bench"};
+
+        uint8_t buffer[BUFFER_SIZE];
+        size_t total_bytes = 0;
 
         for (size_t i = 0; i < NUM_MESSAGES; ++i) {
-			auto buffer{queue.dequeue_block()};
+            size_t bytes = queue.dequeue_block(buffer, BUFFER_SIZE);
+            /*if (bytes <= 0) {
+                break;
+            }*/
+            total_bytes += bytes;
         }
+
+        std::cerr << "Child received: " << total_bytes << " bytes\n";
 
         return 0;
     } else {
-		SharedMemoryQueue<std::array<uint8_t, BUFFER_SIZE>, NUM_MESSAGES> queue{"bench"};
+		SharedMemoryQueue<NUM_MESSAGES, BUFFER_SIZE> queue{"bench"};
 
-		std::array<uint8_t, BUFFER_SIZE> buffer{};
-		buffer.fill('A');
+        uint8_t buffer[BUFFER_SIZE];
+        std::memset(buffer, 'A', BUFFER_SIZE);
 
         auto start = std::chrono::high_resolution_clock::now();
 
         for (size_t i = 0; i < NUM_MESSAGES; ++i) {
-			queue.enqueue(buffer);
+            ssize_t sent = queue.enqueue(buffer, BUFFER_SIZE);
+            if (sent != BUFFER_SIZE) {
+                std::cerr << "Send error\n";
+                break;
+            }
         }
 
         wait(nullptr);    // Wait for child to finish

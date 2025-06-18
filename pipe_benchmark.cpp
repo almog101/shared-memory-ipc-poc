@@ -57,11 +57,12 @@ int main() {
             }
         }
 
-        close(sv[0]); // Signal EOF
         wait(nullptr); // Wait for child
 
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> duration = end - start;
+
+        close(sv[0]); // Signal EOF
 
         size_t total_bytes = BUFFER_SIZE * NUM_MESSAGES;
         double throughput_MBps = (total_bytes / 1e6) / duration.count();

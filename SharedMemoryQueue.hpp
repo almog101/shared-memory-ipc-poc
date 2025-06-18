@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <sstream>
@@ -12,13 +13,19 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 
-template<typename T, size_t MaxSize>
+template<size_t MaxSize, size_t MaxBufferSize = 4096>
 struct SharedMemoryQueue
 {
 private:
+  struct Buffer
+  {
+    uint8_t data[MaxBufferSize];
+    size_t size;
+  };
+
   struct SharedData
   {
-    T buffer[MaxSize];
+    Buffer buffers[MaxSize];
     size_t head;
     size_t tail;
     size_t count;
@@ -35,20 +42,21 @@ public:
       m_shared_memory_name = stringStream.str();
     }
 
-	{
+    {
       std::ostringstream stringStream;
       stringStream << "/SMQ_";
       stringStream << name;
       stringStream << "_sem";
       m_semaphore_name = stringStream.str();
-	}
+    }
 
 #if UNLINK_OLD_QUEUE
     sem_unlink(m_shared_memory_name);
     shm_unlink(m_semaphore_name);
 #endif
 
-    m_shared_memory_fd = shm_open(m_shared_memory_name.c_str(), O_CREAT | O_RDWR, 0666);
+    m_shared_memory_fd =
+      shm_open(m_shared_memory_name.c_str(), O_CREAT | O_RDWR, 0666);
     if (m_shared_memory_fd == -1) {
       perror("shm_open");
       exit(1);
@@ -121,8 +129,9 @@ public:
 
   constexpr size_t capacity() const { return MaxSize; }
 
-  void enqueue(const T& value)
+  size_t enqueue(const uint8_t* const data, size_t size)
   {
+    assert(size <= MaxBufferSize);
     lock();
 
     if (full_unsafe()) {
@@ -130,14 +139,19 @@ public:
       throw std::overflow_error("Queue is full");
     }
 
-    m_data->buffer[m_data->tail] = value;
+    Buffer& buffer{m_data->buffers[m_data->tail]};
+	memcpy(buffer.data, data, size);
+	buffer.size = size;
+
     m_data->tail = (m_data->tail + 1) % MaxSize;
     ++m_data->count;
 
     unlock();
+
+	return size;
   }
 
-  T dequeue()
+  size_t dequeue(uint8_t* const  data, size_t size)
   {
     lock();
 
@@ -146,37 +160,40 @@ public:
       throw std::underflow_error("Queue is empty");
     }
 
-    T value = m_data->buffer[m_data->head];
+    const Buffer& buffer{m_data->buffer[m_data->head]};
+	size_t amount_to_copy{size > buffer.size ? buffer.size : size};
+	memcpy(data, buffer.data, amount_to_copy);
+
     m_data->head = (m_data->head + 1) % MaxSize;
     --m_data->count;
 
     unlock();
 
-    return value;
+    return amount_to_copy;
   }
 
-  T dequeue_block()
+  size_t dequeue_block(uint8_t* const  data, size_t size)
   {
-	for (;;)
-	{
-		lock();
-		
-		if (empty_unsafe())
-		{
-			unlock();
-			usleep(1);
-		}
-		else
-		{
+    for (;;) {
+      lock();
 
-			T value = m_data->buffer[m_data->head];
-			m_data->head = (m_data->head + 1) % MaxSize;
-			--m_data->count;
+      if (empty_unsafe()) {
+        unlock();
+        usleep(1);
+      } else {
 
-			unlock();
-			return value;
-		}
-	}
+		Buffer buffer{m_data->buffers[m_data->head]};
+		size_t amount_to_copy{size > buffer.size ? buffer.size : size};
+		memcpy(data, buffer.data, amount_to_copy);
+
+		m_data->head = (m_data->head + 1) % MaxSize;
+		--m_data->count;
+
+        unlock();
+
+        return amount_to_copy;
+      }
+    }
   }
 
 private:
