@@ -155,6 +155,30 @@ public:
     return value;
   }
 
+  T dequeue_block()
+  {
+	for (;;)
+	{
+		lock();
+		
+		if (empty_unsafe())
+		{
+			unlock();
+			usleep(1);
+		}
+		else
+		{
+
+			T value = m_data->buffer[m_data->head];
+			m_data->head = (m_data->head + 1) % MaxSize;
+			--m_data->count;
+
+			unlock();
+			return value;
+		}
+	}
+  }
+
 private:
   void lock() const { sem_wait(m_semaphore); }
 
