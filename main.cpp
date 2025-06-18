@@ -1,17 +1,21 @@
-#include "SharedMemoryVector.hpp"
+#include "SharedMemoryQueue.hpp"
+#include <cstdio>
 
 int
 main()
 {
-  SharedVector<int, 20> vec{};
-  vec.erase();
-  
-  printf("current length %d\n", vec.length());
+  SharedMemoryQueue<int, 20> queue{"my_queue"};
+
+  while (!queue.empty())
+  {
+	  printf("poped %d\n", queue.dequeue());
+  }
 
   for (int i = 0; i < 10; i++) {
 	printf("here %d\n", i);
-    vec.push_back(i);
+    queue.enqueue(i);
   }
-  sleep(3);
+
+  sleep(1);
   return 0;
 }
